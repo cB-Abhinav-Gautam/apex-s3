@@ -21,7 +21,19 @@ variable "aws_region" {
 variable "bucket_name" {
   description = "Name of the S3 bucket"
   type        = string
-  default     = "apex-public-bucket-files-store"
+  default     = "apex-private-files-store"
+}
+
+module "kms" {
+  source  = "terraform-aws-modules/kms/aws"
+  version = "3.1.0"
+
+  description             = "KMS key for S3 bucket encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  # Allow the caller (who deploys via Tofu/Terraform) to manage this key
+  enable_default_policy = true
 }
 
 module "s3_bucket" {
@@ -30,15 +42,30 @@ module "s3_bucket" {
 
   bucket = var.bucket_name
 
-  # Making the bucket public as explicitly requested
-  acl = "public-read"
+  # Making the bucket strictly private
+  acl = "private"
 
   control_object_ownership = true
-  object_ownership         = "BucketOwnerPreferred"
+  object_ownership         = "BucketOwnerEnforced"
 
-  # Ensure public access is not blocked
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+  # Enforce blocking of public access
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+
+  # Enable versioning for data protection
+  versioning = {
+    enabled = true
+  }
+
+  # Enable server-side encryption with KMS
+  server_side_encryption_configuration = {
+    rule = {
+      apply_server_side_encryption_by_default = {
+        kms_master_key_id = module.kms.key_arn
+        sse_algorithm     = "aws:kms"
+      }
+    }
+  }
 }
